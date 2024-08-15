@@ -1,0 +1,54 @@
+#This script is used for data downloaded with fastq-dump, with fasterq-dump the zcat commands are not needed. Furthermore this script is made for jobarrays.
+
+CONFIG="/scratch/leuven/361/vsc36130/modest/array.list"
+SAMPLE=$(awk -v ARRAYID=$SLURM_ARRAY_TASK_ID '$1==ARRAYID {print $2}' $CONFIG)
+
+#ONLY IF NEEDED!!!
+zcat $SAMPLE"1.fastq.gz" | sed 's|.1 |/1 |g' | gzip > $SAMPLE"1_fixed.fastq.gz"
+zcat $SAMPLE"2.fastq.gz" | sed 's|.2 |/2 |g' | gzip > $SAMPLE"2_fixed.fastq.gz"
+
+#Trimming
+
+module load cluster/wice/batch
+module load Trimmomatic/0.39-Java-11
+
+java -jar $EBROOTTRIMMOMATIC/trimmomatic-0.39.jar PE -threads 32 \
+-phred33 $SAMPLE"1_fixed.fastq.gz" $SAMPLE"2_fixed.fastq.gz" \
+$SAMPLE"1_trimmed.fastq.gz" $SAMPLE"1_unpaired.fastq.gz" $SAMPLE"2_trimmed.fastq.gz" $SAMPLE"2_unpaired.fastq.gz" \
+LEADING:5 TRAILING:5 SLIDINGWINDOW:20:5 ILLUMINACLIP:/scratch/leuven/361/vsc36130/adaptors.fa:2:30:10 MINLEN:50
+
+# Remove fixed fastq files if they are no longer needed
+
+rm -f "${SAMPLE}1_unpaired.fastq.gz" "${SAMPLE}2_unpaired.fastq.gz"
+rm -f "${SAMPLE}1_fixed.fastq.gz" "${SAMPLE}2_fixed.fastq.gz"
+
+#Abyss
+
+module load cluster/wice/batch
+module load ABySS/2.2.5-foss-2021a
+
+for k in 66; do
+        OUTDIR="${SAMPLE}_k${k}"
+        mkdir -p "$OUTDIR"
+        INPUT_FILES="${SAMPLE}1_trimmed.fastq.gz ${SAMPLE}2_trimmed.fastq.gz"
+        abyss-pe -C "$OUTDIR" name=abyss_benchmark B=16G k=$k kc=2 j=32 in="$INPUT_FILES"
+        echo "${OUTDIR}/abyss_benchmark-1*"
+done
+
+#Modest
+
+module load cluster/wice/batch
+module load BWA/0.7.17-GCC-10.3.0
+module load SAMtools/1.13-GCC-10.3.0
+module load BEDTools/2.30.0-GCC-10.3.0
+module load Qualimap/2.2.1-foss-2021a-R-4.1.0
+
+for k in 66; do
+    OUTDIR="${SAMPLE}_k${k}"
+    cd "$OUTDIR" || exit 1
+        export PERL5LIB='/data/leuven/361/vsc36130/perl5/lib/perl5:${PERL5LIB}'
+        export PYTHONPATH="${VSC_DATA}/python_lib/lib/python3.9/site-packages/:${PYTHONPATH}"
+        export PYTHONPATH="/vsc-hard-mounts/leuven-user/361/vsc36130/.local/lib/python3.9/site-packages"
+        /data/leuven/361/vsc36130/backmap/backmap.pl -qo "--java-mem-size=20G" -t 32 -a abyss_benchmark-8.fa -p ${SAMPLE}1_trimmed.fastq.gz,${SAMPLE}2_trimmed.fastq.gz > modest_output
+        cd - || exit 1
+done
