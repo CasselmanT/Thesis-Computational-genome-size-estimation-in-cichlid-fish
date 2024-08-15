@@ -1,0 +1,26 @@
+#This script was used to gather extra data on the ModEst process. This script is made for jobarrays
+
+CONFIG="/scratch/leuven/361/vsc36130/modest/array.list"
+SAMPLE=$(awk -v ARRAYID=$SLURM_ARRAY_TASK_ID '$1==ARRAYID {print $2}' $CONFIG)
+
+module load cluster/wice/batch
+module load SAMtools/1.16.1-GCC-11.3.0
+
+### absolute values
+
+N_READS=$(samtools view -@ 32 -c "${SAMPLE}.bam") # total N reads
+N_READS_UNMAPPED=$(samtools view -@ 32 -c -f 4 "${SAMPLE}.bam") # N unmapped reads
+N_READS_MAPPED=$(samtools view -@ 32 -c -F 4 "${SAMPLE}.bam") # N mapped reads
+N_READS_MAPPED_HQ=$(samtools view -@ 32 -c -F 4 -q 20 "${SAMPLE}.bam") # N mapped reads w MQ > 20
+N_READS_MAPPED_PP=$(samtools view -@ 32 -c -f 0x2 "${SAMPLE}.bam") # N mapped read in proper pair
+
+### relative values
+
+PROP_READS_UNMAPPED=$(echo "scale=5; ($N_READS_UNMAPPED / $N_READS) * 100" | bc)
+PROP_READS_MAPPED=$(echo "scale=5; ($N_READS_MAPPED / $N_READS) * 100" | bc)
+PROP_READS_MAPPED_HQ=$(echo "scale=5; ($N_READS_MAPPED_HQ / $N_READS) * 100" | bc)
+PROP_READS_MAPPED_PP=$(echo "scale=5; ($N_READS_MAPPED_PP / $N_READS) * 100" | bc)
+
+echo $N_READS $N_READS_UNMAPPED $N_READS_MAPPED $N_READS_MAPPED_HQ $N_READS_MAPPED_PP \
+$PROP_READS_UNMAPPED $PROP_READS_MAPPED $PROP_READS_MAPPED_HQ $PROP_READS_MAPPED_PP \
+       > "${SAMPLE}.log"
